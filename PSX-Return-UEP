@@ -1,0 +1,63 @@
+--// NO MORE OBFUSCATES !
+--// Script by @dinareh
+--// Script for https://www.roblox.com/games/76447026084784
+--// Join to discord: https://discord.gg/AwA46UGTcY
+
+--// ImGui
+local ImGui = loadstring(game:HttpGet('https://github.com/depthso/Roblox-ImGUI/raw/main/ImGui.lua'))()
+
+--// Window
+local Window = ImGui:CreateWindow({
+	Title = 'Espa Hub',
+	Size = UDim2.new(0, 190, 0, 110),
+	Position = UDim2.new(0.5, 0, 0, 70)
+})
+Window:Center()
+
+--// Main Tab
+local MainTab = Window:CreateTab({
+	Name = 'Main'
+})
+Window:ShowTab(MainTab)
+
+local EquippedLabel = MainTab:Label({
+	Text = 'discord.gg/AwA46UGTcY'
+})
+
+--// Libraries
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Library = require(ReplicatedStorage:WaitForChild("Framework"):WaitForChild("Library"))
+local Network = Library.Network
+local PetCmds = Library.PetCmds
+local LocalPlayer = game:GetService("Players").LocalPlayer
+
+--// Bypass
+hookfunction(debug.getupvalue(Network.Invoke, 1), function(...) return true end)
+hookfunction(debug.getupvalue(Network.Fired, 1), function(...) return true end)
+
+local function UpgradeEquippedPets()
+    local EquippedPets = PetCmds.GetEquipped(LocalPlayer)
+    local Uids = {}
+    
+    for _, Pet in pairs(EquippedPets) do
+        if Pet and Pet.uid then
+            table.insert(Uids, Pet.uid)
+        end
+    end
+     
+    for _, PetUid in pairs(Uids) do
+        pcall(function()
+            Network.Invoke("Use Fuse Machine", {
+                PetUid, PetUid, PetUid, PetUid, PetUid, PetUid, PetUid, PetUid, PetUid, PetUid, PetUid, PetUid
+            })
+            task.wait(0.1)
+        end)
+    end
+end
+
+
+--// Upgrade Equipped Pets Button
+MainTab:Button({
+	Text = 'Upgrade Equipped Pets',
+	Callback = UpgradeEquippedPets
+})
