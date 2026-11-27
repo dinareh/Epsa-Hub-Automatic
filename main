@@ -1,8 +1,10 @@
---// Replace Older Hub
 if _G.EspaIngame then
     _G.StopHub = true
     task.wait(0.5)
-    if _G.Window then _G.Window:Close() end
+    if _G.Window then
+        if _G.SaveAllCustomData then pcall(_G.SaveAllCustomData) end
+        _G.Window:Close()
+    end
     _G.AutoBuyEgg = false
     _G.AutoBuyEgg2 = false
     _G.x3Eggs = false
@@ -10,65 +12,62 @@ if _G.EspaIngame then
     _G.MaxEggs = false
     _G.AutoFarm = false
     _G.ClaimOrbs = false
+    _G.AutoEnchant = false
+    _G.AutoFuse = false
+    _G.AutoGolden = false
+    _G.AutoRainbow = false
 end
 
 _G.EspaIngame = true
 _G.StopHub = false
 
---// Save System
+if setthreadidentity then setthreadidentity(8) end
+if setidentity then setidentity(8) end
+
 local SettingsFolder = 'EspaHubAutomatic'
 local SettingsFilePath = SettingsFolder .. "/Settings.json"
 local http = game:GetService("HttpService")
 
 local function GetSettingsPath()
     if isfolder and makefolder and writefile and readfile then
-        if not isfolder(SettingsFolder) then
-            makefolder(SettingsFolder)
-        end
+        if not isfolder(SettingsFolder) then makefolder(SettingsFolder) end
         return SettingsFilePath
     end
     return nil
 end
 
---// Default Settings
 local DefaultSettings = {
-    AutoBuyEgg = false,
-    AutoBuyEgg2 = false,
-    x3Eggs = false,
-    x8Eggs = false,
-    MaxEggs = false,
-    AutoFarm = false,
-    ClaimOrbs = false,
-    EggName = 'Cracked Egg',
-    EggDelay = 1,
-    EggAmount = 1,
-    FarmMode = 'Nearest',
-    NearestCount = 10,
-    TargetName = 'Chest'
+    AutoBuyEgg = false, AutoBuyEgg2 = false, x3Eggs = false, x8Eggs = false,
+    MaxEggs = false, AutoFarm = false, ClaimOrbs = false,
+    EggName = 'Cracked Egg', EggDelay = 1, EggAmount = 1,
+    FarmMode = 'Nearest', NearestCount = 10, TargetName = 'Chest',
+    AutoEnchant = false, EnchantDelay = 1.5, SelectedUIDs = "", TargetEnchants = {},
+    GoldenRows = {}, AutoGolden = false,
+    RainbowRows = {}, AutoRainbow = false,
+    FuseRows = {}, AutoFuse = false
 }
 
---// Load Settings
 local function LoadSettings()
     local path = GetSettingsPath()
     if path and isfile(path) then
-        local success, data = pcall(function()
-            return http:JSONDecode(readfile(path))
-        end)
-        if success and type(data) == "table" then
-            return data
-        end
+        local success, data = pcall(function() return http:JSONDecode(readfile(path)) end)
+        if success and type(data) == "table" then return data end
     end
     return {}
 end
 
 local SavedSettings = LoadSettings()
 local Settings = {}
-
 for k, v in pairs(DefaultSettings) do
-    Settings[k] = SavedSettings[k] ~= nil and SavedSettings[k] or v
+    if SavedSettings[k] ~= nil then
+        Settings[k] = SavedSettings[k]
+    elseif type(v) == "table" then
+        Settings[k] = {}
+    else
+        Settings[k] = v
+    end
 end
 
---// Apply Settings
 local EggName = Settings.EggName
 local EggDelay = Settings.EggDelay
 local EggAmount = Settings.EggAmount
@@ -82,8 +81,46 @@ local x8Eggs = Settings.x8Eggs
 local MaxEggs = Settings.MaxEggs
 local AutoFarm = Settings.AutoFarm
 local ClaimOrbs = Settings.ClaimOrbs
+local AutoEnchant = Settings.AutoEnchant
+local EnchantDelay = Settings.EnchantDelay
+local SelectedUIDsSaved = tostring(Settings.SelectedUIDs or "")
+local TargetEnchants = type(Settings.TargetEnchants) == "table" and Settings.TargetEnchants or {}
+local GoldenRows = type(Settings.GoldenRows) == "table" and Settings.GoldenRows or {}
+local AutoGolden = Settings.AutoGolden == true
+local RainbowRows = type(Settings.RainbowRows) == "table" and Settings.RainbowRows or {}
+local AutoRainbow = Settings.AutoRainbow == true
+local FuseRows = type(Settings.FuseRows) == "table" and Settings.FuseRows or {}
+local AutoFuse = Settings.AutoFuse == true
 
---// Save Function
+local UIDInput = nil
+local GoldenTableData = {}
+local RainbowTableData = {}
+local FuseTableData = {}
+
+local function CollectCraftRows(tableData, defaultMode)
+    local rows = {}
+    for _, rowData in ipairs(tableData) do
+        table.insert(rows, {
+            Name = rowData.Name and rowData.Name:GetValue() or "",
+            Mode = defaultMode,
+            Amount = rowData.Amount and rowData.Amount:GetValue() or ""
+        })
+    end
+    return rows
+end
+
+local function CollectFuseRows()
+    local rows = {}
+    for _, rowData in ipairs(FuseTableData) do
+        table.insert(rows, {
+            Name = rowData.Name and rowData.Name:GetValue() or "",
+            Variant = rowData.Variant and rowData.Variant:GetValue() or "Default",
+            Amount = rowData.Amount and rowData.Amount:GetValue() or ""
+        })
+    end
+    return rows
+end
+
 local function SaveCurrentSettings()
     Settings.AutoBuyEgg = AutoBuyEgg
     Settings.AutoBuyEgg2 = AutoBuyEgg2
@@ -98,40 +135,58 @@ local function SaveCurrentSettings()
     Settings.FarmMode = FarmMode
     Settings.NearestCount = NearestCount
     Settings.TargetName = TargetName
-    
+    Settings.AutoEnchant = AutoEnchant
+    Settings.EnchantDelay = EnchantDelay
+    if UIDInput then
+        SelectedUIDsSaved = UIDInput:GetValue() or ""
+    end
+    Settings.SelectedUIDs = SelectedUIDsSaved
+    Settings.TargetEnchants = TargetEnchants
+
+    if #GoldenTableData > 0 then
+        GoldenRows = CollectCraftRows(GoldenTableData, "Golden")
+    end
+    Settings.GoldenRows = GoldenRows
+    Settings.AutoGolden = AutoGolden
+
+    if #RainbowTableData > 0 then
+        RainbowRows = CollectCraftRows(RainbowTableData, "Rainbow")
+    end
+    Settings.RainbowRows = RainbowRows
+    Settings.AutoRainbow = AutoRainbow
+
+    if #FuseTableData > 0 then
+        FuseRows = CollectFuseRows()
+    end
+    Settings.FuseRows = FuseRows
+    Settings.AutoFuse = AutoFuse
+
     local path = GetSettingsPath()
     if path then
-        pcall(function()
-            writefile(path, http:JSONEncode(Settings))
-        end)
+        pcall(function() writefile(path, http:JSONEncode(Settings)) end)
     end
 end
 
---// Libraries
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Z, Library = pcall(function()
-    return require(ReplicatedStorage.Framework.Library)
-end)
+_G.SaveAllCustomData = SaveCurrentSettings
 
-if not Z then
-    Library = require(ReplicatedStorage:WaitForChild("Library"))
-end
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Z, Library = pcall(function() return require(ReplicatedStorage.Framework.Library) end)
+if not Z then Library = require(ReplicatedStorage:WaitForChild("Library")) end
 local Network = Library.Network
 local PetCmds = Library.PetCmds
+local Save = Library.Save
+local Directory = Library.Directory
+local Shared = Library.Shared
 local LocalPlayer = game:GetService("Players").LocalPlayer
 
---// Tables
 local Orbs = {}
 local EquippedPets = {}
 
---// Remote Finder, fully ai block lol
 local function FindRemote(Folder, ScriptName, RemoteType, ArgsCount, NameFilter)
     RemoteType = RemoteType or 'Invoke'
     local function findScript(Folder)
         for _, child in ipairs(Folder:GetChildren()) do
-            if child.Name == ScriptName then
-                return child
-            end
+            if child.Name == ScriptName then return child end
             if child:IsA("Folder") or child:IsA("ModuleScript") then
                 local found = findScript(child)
                 if found then return found end
@@ -139,36 +194,30 @@ local function FindRemote(Folder, ScriptName, RemoteType, ArgsCount, NameFilter)
         end
         return nil
     end
-    
     local script = findScript(Folder)
     if not script then return nil end
-    
     local source = pcall(decompile, script) and decompile(script)
     if not source or source == "" then return nil end
-    
-    local foundRemotes = {}
-    local allRemotes = {}
-    
+    local foundRemotes, allRemotes = {}, {}
     if RemoteType == 'Invoke' then
         for remote, args in source:gmatch('Network%.Invoke%(["\']([^"\']+)["\']%,%s*(.-)%)') do
             local count = 0
             for _ in args:gmatch("[^,]+") do count = count + 1 end
-            table.insert(allRemotes, {name = remote, args = count, full = remote .. "(" .. count .. " args)"})
+            table.insert(allRemotes, {name = remote, args = count})
         end
         for remote in source:gmatch('Network%.Invoke%(["\']([^"\']+)["\']%)') do
-            table.insert(allRemotes, {name = remote, args = 0, full = remote .. "(0 args)"})
+            table.insert(allRemotes, {name = remote, args = 0})
         end
     else
         for remote, args in source:gmatch('Network%.Fire%(["\']([^"\']+)["\']%,%s*(.-)%)') do
             local count = 0
             for _ in args:gmatch("[^,]+") do count = count + 1 end
-            table.insert(allRemotes, {name = remote, args = count, full = remote .. "(" .. count .. " args)"})
+            table.insert(allRemotes, {name = remote, args = count})
         end
         for remote in source:gmatch('Network%.Fire%(["\']([^"\']+)["\']%)') do
-            table.insert(allRemotes, {name = remote, args = 0, full = remote .. "(0 args)"})
+            table.insert(allRemotes, {name = remote, args = 0})
         end
     end
-    
     if NameFilter and NameFilter ~= 'any' then
         for _, r in ipairs(allRemotes) do
             if string.lower(r.name):find(string.lower(NameFilter)) then
@@ -178,46 +227,31 @@ local function FindRemote(Folder, ScriptName, RemoteType, ArgsCount, NameFilter)
     else
         foundRemotes = allRemotes
     end
-    
-    if #foundRemotes == 0 then
-        return nil
-    end
-    
-    if ArgsCount == 'any' or ArgsCount == nil then
-        return foundRemotes[1].name
-    end
-    
+    if #foundRemotes == 0 then return nil end
+    if ArgsCount == 'any' or ArgsCount == nil then return foundRemotes[1].name end
     for _, r in ipairs(foundRemotes) do
-        if r.args == ArgsCount then
-            return r.name
-        end
-    end  
+        if r.args == ArgsCount then return r.name end
+    end
     return nil
 end
 
---// Remotes
 local EggRemote = FindRemote(LocalPlayer.PlayerScripts, 'Eggs', 'Invoke', 'any', 'Buy') or 'Buy Egg'
 local OrbsRemote = FindRemote(LocalPlayer.PlayerScripts, 'Orbs', 'Fire', 'any', 'Claim') or 'Claim Orbs'
 local FarmCoinRemote = FindRemote(LocalPlayer.PlayerScripts, 'Pets', 'Fire', 'any', 'Farm') or 'Farm Coin'
 local JoinCoinRemote = FindRemote(LocalPlayer.PlayerScripts, 'Pets', 'Invoke', 'any', 'Join') or 'Join Coin'
 local GetCoinsRemote = FindRemote(LocalPlayer.PlayerScripts, 'Coins', 'Invoke', 'any', 'Get') or 'Get Coins'
+local GoldenRemote = FindRemote(LocalPlayer.PlayerScripts, 'Gold', 'Invoke', 'any', 'Gold') or 'Use Golden Machine'
+local RainbowRemote = FindRemote(LocalPlayer.PlayerScripts, 'Rainbow', 'Invoke', 'any', 'Rainbow') or 'Use Rainbow Machine'
+local FuseRemote = FindRemote(LocalPlayer.PlayerScripts, 'Fuse', 'Invoke', 'any', 'Fuse') or 'Fuse Pets'
+local EnchantRemote = FindRemote(LocalPlayer.PlayerScripts, 'Enchant', 'Invoke', 'any', 'Enchant') or 'Enchant Pet'
 
---// Test
-print(EggRemote, OrbsRemote, FarmCoinRemote, JoinCoinRemote, GetCoinsRemote)
+print(EggRemote, OrbsRemote, FarmCoinRemote, JoinCoinRemote, GetCoinsRemote, GoldenRemote, RainbowRemote, FuseRemote, EnchantRemote)
 
-if not EggRemote then return end
-if not OrbsRemote then return end
-if not FarmCoinRemote then return end
-if not JoinCoinRemote then return end
-if not GetCoinsRemote then return end
-
---// ImGui
 local ImGui = loadstring(game:HttpGet('https://raw.githubusercontent.com/dinareh/Depthso-Roblox-ImGui/refs/heads/main/ImGui.lua'))()
 
---// Window
 _G.Window = ImGui:CreateWindow({
     Title = 'Espa Hub Automatic',
-    Size = UDim2.new(0, 350, 0, 450),
+    Size = UDim2.new(0, 420, 0, 470),
     Position = UDim2.new(0.5, 0, 0, 70)
 })
 _G.Window:SetVisible(false)
@@ -228,256 +262,600 @@ _G.Window.CloseCallback = function()
     _G.EspaIngame = false
     SaveCurrentSettings()
     _G.AutoBuyEgg = false
+    _G.AutoBuyEgg2 = false
     _G.x3Eggs = false
     _G.x8Eggs = false
     _G.MaxEggs = false
     _G.AutoFarm = false
     _G.ClaimOrbs = false
+    _G.AutoEnchant = false
+    _G.AutoFuse = false
+    _G.AutoGolden = false
+    _G.AutoRainbow = false
 end
 
---// Bypass Modal
-local Modal = ImGui:CreateModal({
-    Title = 'Espa Hub',
-    Size = UDim2.new(0, 350, 0, 100)
-})
-
-Modal:Label({
-    Text = "Enable Bypass?",
-    TextSize = 18,
-})
-
-Modal:Label({
-    Text = 'If not working, rejoin and choose another answer',
-})
-
---// Bypass Row
+local Modal = ImGui:CreateModal({ Title = 'Espa Hub', Size = UDim2.new(0, 350, 0, 100) })
+Modal:Label({ Text = "Enable Bypass?", TextSize = 18 })
+Modal:Label({ Text = 'If not working, rejoin and choose another answer' })
 local Row = Modal:Row()
+Row:Button({ Text = 'Yes', Callback = function()
+    hookfunction(debug.getupvalue(Network.Invoke, 1), function(...) return true end)
+    hookfunction(debug.getupvalue(Network.Fired, 1), function(...) return true end)
+    Modal:Close()
+    task.wait(0.5)
+    _G.Window:SetVisible(true)
+end })
+Row:Button({ Text = 'No', Callback = function()
+    Modal:Close()
+    task.wait(0.5)
+    _G.Window:SetVisible(true)
+end })
 
-Row:Button({
-    Text = 'Yes',
-    Callback = function()
-        hookfunction(debug.getupvalue(Network.Invoke, 1), function(...) return true end)
-        hookfunction(debug.getupvalue(Network.Fired, 1), function(...) return true end)
-        Modal:Close()
-        task.wait(0.5)
-        _G.Window:SetVisible(true)
-    end,
-})
-
-Row:Button({
-    Text = 'No',
-    Callback = function()
-        Modal:Close()
-        task.wait(0.5)
-        _G.Window:SetVisible(true)
-    end,
-})
-
---// Main Tab
-local MainTab = _G.Window:CreateTab({
-    Name = 'Main'
-})
-
+local MainTab = _G.Window:CreateTab({ Name = 'Main' })
+local GoldenTab = _G.Window:CreateTab({ Name = 'Golden' })
+local RainbowTab = _G.Window:CreateTab({ Name = 'Rainbow' })
+local FuseTab = _G.Window:CreateTab({ Name = 'Fuse' })
+local EnchantTab = _G.Window:CreateTab({ Name = 'Enchant' })
 _G.Window:ShowTab(MainTab)
 
-MainTab:InputText({
-    Label = 'Egg Name (Method 1 & 2)',
-    PlaceHolder = 'Cracked Egg',
-    Value = EggName,
-    Callback = function(self)
-        EggName = self:GetValue()
-        SaveCurrentSettings()
-    end
-})
-
-MainTab:InputText({
-    Label = 'Delay (Method 1 & 2)',
-    PlaceHolder = '1',
-    Value = tostring(EggDelay),
-    Callback = function(self)
-        local val = tonumber(self:GetValue())
-        if val and val > 0 then
-            EggDelay = val
-            SaveCurrentSettings()
-        end
-    end
-})
-
-MainTab:Checkbox({
-    Label = 'Auto Buy Egg (Method 1)',
-    Value = AutoBuyEgg,
-    Callback = function(self, Value)
-        _G.AutoBuyEgg = Value
-        AutoBuyEgg = Value
-        SaveCurrentSettings()
-    end
-})
-
-MainTab:Checkbox({
-    Label = 'x3 Eggs (Method 1)',
-    Value = x3Eggs,
-    Callback = function(self, Value)
-        _G.x3Eggs = Value
-        x3Eggs = Value
-        SaveCurrentSettings()
-    end
-})
-
-MainTab:Checkbox({
-    Label = 'x8 Eggs (Method 1)',
-    Value = x8Eggs,
-    Callback = function(self, Value)
-        _G.x8Eggs = Value
-        x8Eggs = Value
-        SaveCurrentSettings()
-    end
-})
-
-MainTab:Checkbox({
-    Label = 'Max Eggs (Method 1)',
-    Value = MaxEggs,
-    Callback = function(self, Value)
-        _G.MaxEggs = Value
-        MaxEggs = Value
-        SaveCurrentSettings()
-    end
-})
-
-MainTab:InputText({
-    Label = 'Egg Amount (Method 2)',
-    PlaceHolder = '1',
-    Value = tostring(EggAmount),
-    Callback = function(self)
-        local vall = tonumber(self:GetValue())
-        if vall and vall > 0 then
-            EggAmount = vall
-            SaveCurrentSettings()
-        end
-    end
-})
-
-MainTab:Checkbox({
-    Label = 'Auto Buy Egg (Method 2)',
-    Value = AutoBuyEgg2,
-    Callback = function(self, Value)
-        _G.AutoBuyEgg2 = Value
-        AutoBuyEgg2 = Value
-        SaveCurrentSettings()
-    end
-})
-
+MainTab:InputText({ Label = 'Egg Name (Method 1 & 2)', PlaceHolder = 'Cracked Egg', Value = EggName,
+    Callback = function(self) EggName = self:GetValue(); SaveCurrentSettings() end })
+MainTab:InputText({ Label = 'Delay (Method 1 & 2)', PlaceHolder = '1', Value = tostring(EggDelay),
+    Callback = function(self) local val = tonumber(self:GetValue()); if val and val > 0 then EggDelay = val; SaveCurrentSettings() end end })
+MainTab:Checkbox({ Label = 'Auto Buy Egg (Method 1)', Value = AutoBuyEgg,
+    Callback = function(self, Value) _G.AutoBuyEgg = Value; AutoBuyEgg = Value; SaveCurrentSettings() end })
+MainTab:Checkbox({ Label = 'x3 Eggs (Method 1)', Value = x3Eggs,
+    Callback = function(self, Value) _G.x3Eggs = Value; x3Eggs = Value; SaveCurrentSettings() end })
+MainTab:Checkbox({ Label = 'x8 Eggs (Method 1)', Value = x8Eggs,
+    Callback = function(self, Value) _G.x8Eggs = Value; x8Eggs = Value; SaveCurrentSettings() end })
+MainTab:Checkbox({ Label = 'Max Eggs (Method 1)', Value = MaxEggs,
+    Callback = function(self, Value) _G.MaxEggs = Value; MaxEggs = Value; SaveCurrentSettings() end })
+MainTab:InputText({ Label = 'Egg Amount (Method 2)', PlaceHolder = '1', Value = tostring(EggAmount),
+    Callback = function(self) local vall = tonumber(self:GetValue()); if vall and vall > 0 then EggAmount = vall; SaveCurrentSettings() end end })
+MainTab:Checkbox({ Label = 'Auto Buy Egg (Method 2)', Value = AutoBuyEgg2,
+    Callback = function(self, Value) _G.AutoBuyEgg2 = Value; AutoBuyEgg2 = Value; SaveCurrentSettings() end })
+MainTab:Separator()
+MainTab:Checkbox({ Label = 'Claim Orbs', Value = ClaimOrbs,
+    Callback = function(self, Value) _G.ClaimOrbs = Value; ClaimOrbs = Value; SaveCurrentSettings() end })
+MainTab:Checkbox({ Label = 'Auto Farm', Value = AutoFarm,
+    Callback = function(self, Value) _G.AutoFarm = Value; AutoFarm = Value; SaveCurrentSettings() end })
 MainTab:Separator()
 
-MainTab:Checkbox({
-    Label = 'Claim Orbs',
-    Value = ClaimOrbs,
-    Callback = function(self, Value)
-        _G.ClaimOrbs = Value
-        ClaimOrbs = Value
-        SaveCurrentSettings()
-    end
-})
-
-MainTab:Checkbox({
-    Label = 'Auto Farm',
-    Value = AutoFarm,
-    Callback = function(self, Value)
-        _G.AutoFarm = Value
-        AutoFarm = Value
-        SaveCurrentSettings()
-    end
-})
-
-MainTab:Separator()
-
---// Farm Mode Combo
 local FarmModes = {"Nearest", "Random", "Gems", "Name"}
 local CurrentFarmMode = 1
-for i, Mode in ipairs(FarmModes) do
-    if Mode == FarmMode then
-        CurrentFarmMode = i
-        break
+for i, Mode in ipairs(FarmModes) do if Mode == FarmMode then CurrentFarmMode = i; break end end
+MainTab:Combo({ Label = 'Farm Mode', Items = FarmModes, Selected = FarmModes[CurrentFarmMode],
+    Callback = function(self, Value) FarmMode = Value; SaveCurrentSettings() end })
+MainTab:InputText({ Label = 'Nearest Count', PlaceHolder = '10', Value = tostring(NearestCount),
+    Callback = function(self) local val = tonumber(self:GetValue()); if val then NearestCount = val; SaveCurrentSettings() end end })
+MainTab:InputText({ Label = 'Target Name', PlaceHolder = 'Chest, Diamond, Present', Value = TargetName,
+    Callback = function(self) TargetName = self:GetValue(); SaveCurrentSettings() end })
+
+local function MatchesPetName(pet, targetName)
+    if not pet or not pet.id or targetName == "" then return false end
+    local targetLower = string.lower(targetName)
+    local petIdLower = string.lower(tostring(pet.id))
+    if petIdLower == targetLower or string.find(petIdLower, targetLower, 1, true) then
+        return true
+    end
+    local def = Directory.Pets and Directory.Pets[tostring(pet.id)]
+    if def and def.name then
+        local defNameLower = string.lower(tostring(def.name))
+        if defNameLower == targetLower or string.find(defNameLower, targetLower, 1, true) then
+            return true
+        end
+    end
+    return false
+end
+
+local function CraftMachineRows(tableData, isRainbow)
+    local saveData = Save.Get()
+    local petsData = saveData and saveData.Pets
+    if not petsData then return end
+
+    local odds = isRainbow and ((Shared and Shared.RainbowMachineOdds) or {}) or ((Shared and Shared.GoldMachineOdds) or {})
+    local remote = isRainbow and RainbowRemote or GoldenRemote
+    local PetsDir = Directory.Pets or {}
+
+    for _, rowData in ipairs(tableData) do
+        local targetName = rowData.Name:GetValue()
+        local customAmount = tonumber(rowData.Amount:GetValue())
+        local amount = (customAmount and customAmount > 0) and customAmount or #odds
+
+        if targetName ~= "" and amount > 0 then
+            local groups = {}
+            for _, pet in ipairs(petsData) do
+                local def = PetsDir[tostring(pet.id)]
+                if pet and pet.uid and not pet.l and def and MatchesPetName(pet, targetName) then
+                    if not (def.isPremium or def.rarity == "Exclusive" or def.rarity == "Event" or def.isGift) then
+                        local isGold = pet.g == true and not pet.r and not pet.dm and not pet.gh and not pet.mj
+                        local isNormal = not pet.g and not pet.r and not pet.dm and not pet.gh and not pet.mj
+                        local okVariant = isRainbow and isGold or isNormal
+
+                        if okVariant then
+                            local key = tostring(pet.id) .. "|" .. tostring(pet.sh == true) .. "|" .. tostring(pet.hc == true)
+                            groups[key] = groups[key] or {}
+                            table.insert(groups[key], pet.uid)
+                        end
+                    end
+                end
+            end
+
+            for _, uidList in pairs(groups) do
+                if #uidList >= amount then
+                    local chosen = {}
+                    for i = 1, amount do
+                        chosen[i] = uidList[i]
+                    end
+                    task.spawn(function()
+                        task.wait(0.1)
+                        pcall(function() Network.Invoke(remote, chosen) end)
+                    end)
+                    break
+                end
+            end
+        end
     end
 end
 
-MainTab:Combo({
-    Label = 'Farm Mode',
-    Items = FarmModes,
-    Selected = FarmModes[CurrentFarmMode],
-    Callback = function(self, Value)
-        FarmMode = Value
+local function FusePets()
+    local saveData = Save.Get()
+    local petsData = saveData and saveData.Pets
+    if not petsData then return end
+
+    for _, rowData in ipairs(FuseTableData) do
+        local targetName = rowData.Name:GetValue()
+        local targetVariant = rowData.Variant:GetValue()
+        local amount = tonumber(rowData.Amount:GetValue())
+
+        if targetName ~= "" and amount and amount > 0 then
+            local matched = {}
+            for _, pet in ipairs(petsData) do
+                if pet and pet.uid and not pet.l and MatchesPetName(pet, targetName) then
+                    local isGolden = pet.g == true
+                    local isRainbow = pet.r == true
+                    local isDefault = not isGolden and not isRainbow and not pet.dm
+
+                    local variantMatch =
+                        (targetVariant == "Default" and isDefault)
+                        or (targetVariant == "Golden" and isGolden)
+                        or (targetVariant == "Rainbow" and isRainbow)
+
+                    if variantMatch then
+                        table.insert(matched, pet.uid)
+                    end
+                end
+            end
+
+            if #matched >= amount then
+                local uids = {}
+                for i = 1, amount do
+                    table.insert(uids, matched[i])
+                end
+                task.spawn(function()
+                    task.wait(0.1)
+                    pcall(function() Network.Invoke(FuseRemote, uids) end)
+                end)
+            end
+        end
+    end
+end
+
+local function BuildSimpleCraftTab(tab, tableData, savedRows, isRainbow, actionText, autoVarName, onAction)
+    local tbl = tab:Table({
+        RowBackground = true,
+        Border = false,
+        RowsFill = false,
+        Size = UDim2.fromScale(1, 0)
+    })
+
+    local function createRow(data)
+        data = data or {}
+        local Row = tbl:CreateRow()
+
+        local NameColumn = Row:CreateColumn()
+        NameColumn.Size = UDim2.new(0.58, 0, 0, 30)
+        local NameInput = NameColumn:InputText({
+            PlaceHolder = "Pet Name",
+            Value = data.Name or "",
+            Size = UDim2.new(1, 0, 0, 30),
+            Callback = function() SaveCurrentSettings() end
+        })
+
+        local AmountColumn = Row:CreateColumn()
+        AmountColumn.Size = UDim2.new(0.24, 0, 0, 30)
+        local AmountInput = AmountColumn:InputText({
+            PlaceHolder = "Amount",
+            Value = data.Amount or "",
+            Size = UDim2.new(1, 0, 0, 30),
+            Callback = function() SaveCurrentSettings() end
+        })
+
+        local DeleteColumn = Row:CreateColumn()
+        DeleteColumn.Size = UDim2.new(0.18, 0, 0, 30)
+
+        local rowData = {
+            Name = NameInput,
+            Mode = isRainbow and "Rainbow" or "Golden",
+            Amount = AmountInput,
+            Row = Row
+        }
+        table.insert(tableData, rowData)
+
+        DeleteColumn:Button({
+            Text = "Del",
+            Size = UDim2.new(1, -4, 0, 28),
+            Callback = function()
+                Row:Remove()
+                for i, v in ipairs(tableData) do
+                    if v == rowData then
+                        table.remove(tableData, i)
+                        break
+                    end
+                end
+                SaveCurrentSettings()
+            end
+        })
+
+        return rowData
+    end
+
+    if #savedRows > 0 then
+        for _, rData in ipairs(savedRows) do
+            createRow(rData)
+        end
+    else
+        createRow()
+    end
+
+    local actionRow = tab:Row()
+    actionRow:Button({
+        Text = "Add",
+        Size = UDim2.new(0, 60, 0, 30),
+        Callback = function()
+            createRow()
+            SaveCurrentSettings()
+        end
+    })
+    actionRow:Button({
+        Text = actionText,
+        Size = UDim2.new(0, 80, 0, 30),
+        Callback = function()
+            onAction()
+        end
+    })
+
+    local initialAuto = (autoVarName == "Golden" and AutoGolden)
+        or (autoVarName == "Rainbow" and AutoRainbow)
+        or false
+
+    actionRow:Checkbox({
+        Label = "Auto " .. actionText,
+        Value = initialAuto,
+        Callback = function(self, Value)
+            if autoVarName == "Golden" then
+                AutoGolden = Value
+                _G.AutoGolden = Value
+            elseif autoVarName == "Rainbow" then
+                AutoRainbow = Value
+                _G.AutoRainbow = Value
+            end
+            SaveCurrentSettings()
+        end
+    })
+    actionRow:Fill()
+
+    tab:Label({
+        Text = "Empty Amount uses machine odds count",
+        TextColor3 = Color3.fromRGB(200, 200, 200),
+        Size = UDim2.new(1, 0, 0, 20)
+    })
+end
+
+BuildSimpleCraftTab(GoldenTab, GoldenTableData, GoldenRows, false, "Golden", "Golden", function()
+    CraftMachineRows(GoldenTableData, false)
+end)
+
+BuildSimpleCraftTab(RainbowTab, RainbowTableData, RainbowRows, true, "Rainbow", "Rainbow", function()
+    CraftMachineRows(RainbowTableData, true)
+end)
+
+local FuseTable = FuseTab:Table({
+    RowBackground = true,
+    Border = false,
+    RowsFill = false,
+    Size = UDim2.fromScale(1, 0)
+})
+
+local function CreateFuseRow(data)
+    data = data or {}
+    local Row = FuseTable:CreateRow()
+
+    local NameColumn = Row:CreateColumn()
+    NameColumn.Size = UDim2.new(0.36, 0, 0, 30)
+    local NameInput = NameColumn:InputText({
+        PlaceHolder = "Pet Name",
+        Value = data.Name or "",
+        Size = UDim2.new(1, 0, 0, 30),
+        Callback = function() SaveCurrentSettings() end
+    })
+
+    local VariantColumn = Row:CreateColumn()
+    VariantColumn.Size = UDim2.new(0.28, 0, 0, 30)
+    local VariantCombo = VariantColumn:Combo({
+        Label = "",
+        Items = {"Default", "Golden", "Rainbow"},
+        Selected = data.Variant or "Default",
+        Size = UDim2.new(1, 0, 0, 30),
+        Callback = function() SaveCurrentSettings() end
+    })
+
+    local AmountColumn = Row:CreateColumn()
+    AmountColumn.Size = UDim2.new(0.20, 0, 0, 30)
+    local AmountInput = AmountColumn:InputText({
+        PlaceHolder = "Amount",
+        Value = data.Amount or "",
+        Size = UDim2.new(1, 0, 0, 30),
+        Callback = function() SaveCurrentSettings() end
+    })
+
+    local DeleteColumn = Row:CreateColumn()
+    DeleteColumn.Size = UDim2.new(0.16, 0, 0, 30)
+
+    local rowData = {
+        Name = NameInput,
+        Variant = VariantCombo,
+        Amount = AmountInput,
+        Row = Row
+    }
+    table.insert(FuseTableData, rowData)
+
+    DeleteColumn:Button({
+        Text = "Del",
+        Size = UDim2.new(1, -4, 0, 28),
+        Callback = function()
+            Row:Remove()
+            for i, v in ipairs(FuseTableData) do
+                if v == rowData then
+                    table.remove(FuseTableData, i)
+                    break
+                end
+            end
+            SaveCurrentSettings()
+        end
+    })
+
+    return rowData
+end
+
+if #FuseRows > 0 then
+    for _, rData in ipairs(FuseRows) do
+        CreateFuseRow(rData)
+    end
+else
+    CreateFuseRow()
+end
+
+local fuseActionRow = FuseTab:Row()
+fuseActionRow:Button({
+    Text = "Add",
+    Size = UDim2.new(0, 60, 0, 30),
+    Callback = function()
+        CreateFuseRow()
         SaveCurrentSettings()
     end
 })
+fuseActionRow:Button({
+    Text = "Fuse",
+    Size = UDim2.new(0, 80, 0, 30),
+    Callback = function()
+        FusePets()
+    end
+})
+fuseActionRow:Checkbox({
+    Label = "Auto Fuse",
+    Value = AutoFuse,
+    Callback = function(self, Value)
+        AutoFuse = Value
+        _G.AutoFuse = Value
+        SaveCurrentSettings()
+    end
+})
+fuseActionRow:Fill()
 
-MainTab:InputText({
-    Label = 'Nearest Count',
-    PlaceHolder = '10',
-    Value = tostring(NearestCount),
+FuseTab:Label({
+    Text = "Amount - amount pets per fuse 3-12",
+    TextColor3 = Color3.fromRGB(200, 200, 200),
+    Size = UDim2.new(1, 0, 0, 20)
+})
+
+local function GetPetEligible(pet)
+    local def = Directory.Pets[pet.id]
+    if not def then return false end
+    if def.isPremium then return false end
+    if def.rarity == "Exclusive" then return false end
+    if def.rarity == "Mythical" then return false end
+    return true
+end
+
+EnchantTab:Separator({ Text = "Selected Pet UIDs" })
+UIDInput = EnchantTab:InputTextMultiline({
+    PlaceHolder = 'Enter UIDs here or use [Add] below...',
+    Value = SelectedUIDsSaved,
+    Size = UDim2.new(1, 0, 0, 40),
     Callback = function(self)
-        local val = tonumber(self:GetValue())
-        if val then
-            NearestCount = val
-            SaveCurrentSettings()
+        SelectedUIDsSaved = self:GetValue() or ""
+        SaveCurrentSettings()
+    end
+})
+pcall(function() UIDInput:SetValue(SelectedUIDsSaved) end)
+
+local function GetSelectedUIDs()
+    local text = UIDInput and UIDInput:GetValue() or SelectedUIDsSaved
+    if not text or text == "" then return {} end
+    local uids = {}
+    for uid in string.gmatch(text, "([^,]+)") do
+        uid = string.gsub(uid, "%s+", "")
+        if uid ~= "" then table.insert(uids, uid) end
+    end
+    return uids
+end
+
+local function AddUIDToInput(uid)
+    local current = UIDInput and UIDInput:GetValue() or SelectedUIDsSaved
+    for u in string.gmatch(current, "([^,]+)") do
+        if string.gsub(u, "%s+", "") == uid then return end
+    end
+    local updated = (current == "") and uid or (current .. ", " .. uid)
+    SelectedUIDsSaved = updated
+    if UIDInput then pcall(function() UIDInput:SetValue(updated) end) end
+    SaveCurrentSettings()
+end
+
+EnchantTab:Separator({ Text = "Settings" })
+EnchantTab:InputText({ Label = 'Speed (seconds)', PlaceHolder = '1.5', Value = tostring(EnchantDelay),
+    Callback = function(self) local val = tonumber(self:GetValue()); if val and val > 0 then EnchantDelay = val; SaveCurrentSettings() end end })
+EnchantTab:Checkbox({ Label = 'Auto Enchant', Value = AutoEnchant,
+    Callback = function(self, Value) AutoEnchant = Value; _G.AutoEnchant = Value; SaveCurrentSettings() end })
+
+local function BuildEnchantList()
+    local PowersByCategory = {}
+    for powerName, powerData in pairs(Directory.Powers) do
+        if powerData.canDrop ~= false then
+            local category = powerData.Name or "Other"
+            if not PowersByCategory[category] then PowersByCategory[category] = {} end
+            table.insert(PowersByCategory[category], { Name = powerName, Data = powerData })
+        end
+    end
+    EnchantTab:Separator({ Text = "Enchants" })
+    for category, powers in pairs(PowersByCategory) do
+        local Header = EnchantTab:CollapsingHeader({ Title = category })
+        for _, power in ipairs(powers) do
+            local powerName = power.Name
+            local maxLevel = #power.Data.tiers
+            local PowerHeader = Header:CollapsingHeader({ Title = powerName })
+            TargetEnchants[powerName] = TargetEnchants[powerName] or {}
+            for level = 1, maxLevel do
+                local tierTitle = power.Data.tiers[level].title or ("Level " .. level)
+                PowerHeader:Checkbox({
+                    Label = tierTitle,
+                    Value = TargetEnchants[powerName][level] or false,
+                    Callback = function(self, Value)
+                        TargetEnchants[powerName][level] = Value
+                        SaveCurrentSettings()
+                    end
+                })
+            end
+        end
+    end
+end
+
+local PetButtons = {}
+local SearchQuery = ""
+
+local function BuildPetList()
+    local Data = Save.Get()
+    if not Data or not Data.Pets then return end
+    local EligiblePets = {}
+    for _, pet in ipairs(Data.Pets) do
+        if GetPetEligible(pet) then table.insert(EligiblePets, pet) end
+    end
+    table.sort(EligiblePets, function(a, b)
+        local nameA = a.nk or (Directory.Pets[a.id] and Directory.Pets[a.id].name) or "Unknown"
+        local nameB = b.nk or (Directory.Pets[b.id] and Directory.Pets[b.id].name) or "Unknown"
+        return nameA < nameB
+    end)
+    for _, pet in ipairs(EligiblePets) do
+        local def = Directory.Pets[pet.id]
+        local petName = def.name
+        if pet.r then petName = "Rainbow " .. petName
+        elseif pet.g then petName = "Golden " .. petName end
+        if pet.dm then petName = "Dark Matter " .. petName end
+        if pet.nk then petName = petName .. " (" .. pet.nk .. ")" end
+        local EnchantString = ""
+        if pet.powers and #pet.powers > 0 then
+            local Enchants = {}
+            for _, p in ipairs(pet.powers) do
+                local pName = p[1]
+                local pLvl = p[2]
+                local tierTitle = pName
+                if Directory.Powers[pName] and Directory.Powers[pName].tiers and Directory.Powers[pName].tiers[pLvl] then
+                    tierTitle = Directory.Powers[pName].tiers[pLvl].title
+                end
+                table.insert(Enchants, tierTitle)
+            end
+            EnchantString = " | " .. table.concat(Enchants, ", ")
+        end
+        local Btn = EnchantTab:Button({
+            Text = "[Add] " .. petName .. EnchantString,
+            Callback = function() AddUIDToInput(pet.uid) end
+        })
+        table.insert(PetButtons, { Button = Btn, Name = petName, UID = pet.uid })
+    end
+end
+
+BuildEnchantList()
+EnchantTab:Separator({ Text = "All Pets (click Add to select)" })
+EnchantTab:Separator({ Text = "Pets" })
+EnchantTab:InputText({
+    Label = 'Search (name / nickname / uid)',
+    PlaceHolder = 'Type here...',
+    Value = "",
+    Callback = function(self)
+        SearchQuery = string.lower(self:GetValue() or "")
+        for _, data in ipairs(PetButtons) do
+            local match = true
+            if SearchQuery ~= "" then
+                match = string.find(string.lower(data.Name), SearchQuery, 1, true) ~= nil
+                if not match then
+                    match = string.find(string.lower(data.UID), SearchQuery, 1, true) ~= nil
+                end
+            end
+            pcall(function() data.Button.Visible = match end)
         end
     end
 })
+BuildPetList()
 
---// Target Name
-MainTab:InputText({
-    Label = 'Target Name',
-    PlaceHolder = 'Chest, Diamond, Present',
-    Value = TargetName,
-    Callback = function(self)
-        TargetName = self:GetValue()
-        SaveCurrentSettings()
+local function PetHasDesiredEnchant(pet)
+    for powerName, levels in pairs(TargetEnchants) do
+        local has, lvl = Shared.HasPower(pet, powerName)
+        if has and levels[tonumber(lvl)] then return true end
     end
-})
+    return false
+end
 
---// Equipped Pets System
 local function UpdateEquippedPets()
     table.clear(EquippedPets)
     local equippedPets = PetCmds.GetEquipped(LocalPlayer)
     for _, pet in pairs(equippedPets) do
-        if pet and pet.uid then
-            table.insert(EquippedPets, pet.uid)
-        end
+        if pet and pet.uid then table.insert(EquippedPets, pet.uid) end
     end
 end
 
 UpdateEquippedPets()
 
---// Auto Buy Egg System (Method 1)
 task.spawn(function()
     while not _G.StopHub do
         task.wait(EggDelay)
-        if AutoBuyEgg then
-            Network.Invoke(EggRemote, EggName, x3Eggs, x8Eggs, MaxEggs)
-        end
+        if AutoBuyEgg then Network.Invoke(EggRemote, EggName, x3Eggs, x8Eggs, MaxEggs) end
     end
 end)
 
---// Auto Buy Egg System (Method 2)
 task.spawn(function()
     while not _G.StopHub do
         task.wait(EggDelay)
-        if AutoBuyEgg2 then
-            Network.Invoke(EggRemote, EggName, EggAmount)
-        end
+        if AutoBuyEgg2 then Network.Invoke(EggRemote, EggName, EggAmount) end
     end
 end)
 
---// Claim Orbs System
 task.spawn(function()
     while not _G.StopHub do
         task.wait(0.33)
         if ClaimOrbs then
             local orbsContainer = Library.Things:FindFirstChild("Orbs")
             if orbsContainer then
-                for _, Orb in pairs(orbsContainer:GetChildren()) do
-                    table.insert(Orbs, Orb.Name)
-                end
-                
+                for _, Orb in pairs(orbsContainer:GetChildren()) do table.insert(Orbs, Orb.Name) end
                 if #Orbs > 0 then
                     Network.Fire(OrbsRemote, Orbs)
                     table.clear(Orbs)
@@ -487,53 +865,35 @@ task.spawn(function()
     end
 end)
 
---// Auto Farm System
 coroutine.wrap(function()
     while not _G.StopHub do
         if AutoFarm then
             UpdateEquippedPets()
             if #EquippedPets > 0 then
-                local Success, GetCoins = pcall(function()
-                    return Network.Invoke(GetCoinsRemote)
-                end)
-                
+                local Success, GetCoins = pcall(function() return Network.Invoke(GetCoinsRemote) end)
                 if Success and type(GetCoins) == "table" then
                     local RootPart = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-                    
                     if RootPart then
                         local PlayerPos = RootPart.Position
-                        local AllCoins = {}
-                        local TargetCoins = {}
-                        
+                        local AllCoins, TargetCoins = {}, {}
                         for CoinId, CoinData in pairs(GetCoins) do
                             if CoinData and CoinData.p then
                                 local ShouldFarm = true
                                 local name = CoinData.n or ""
-                                
                                 if FarmMode == "Gems" then
-                                    if not (name:find("Diamond") or name:find("Gem")) then
-                                        ShouldFarm = false
-                                    end
+                                    if not (name:find("Diamond") or name:find("Gem")) then ShouldFarm = false end
                                 elseif FarmMode == "Name" then
                                     if name:lower():find(TargetName:lower()) then
-                                        table.insert(TargetCoins, {
-                                            id = CoinId,
-                                            dist = (PlayerPos - CoinData.p).Magnitude,
-                                            name = name
-                                        })
+                                        table.insert(TargetCoins, { id = CoinId, dist = (PlayerPos - CoinData.p).Magnitude, name = name })
                                     end
                                     ShouldFarm = false
                                 end
-                                
                                 if ShouldFarm then
-                                    local Dist = (PlayerPos - CoinData.p).Magnitude
-                                    table.insert(AllCoins, { id = CoinId, dist = Dist })
+                                    table.insert(AllCoins, { id = CoinId, dist = (PlayerPos - CoinData.p).Magnitude })
                                 end
                             end
                         end
-                        
                         local SelectedCoinId = nil
-                        
                         if FarmMode == "Name" then
                             if #TargetCoins > 0 then
                                 table.sort(TargetCoins, function(a, b) return a.dist < b.dist end)
@@ -542,21 +902,14 @@ coroutine.wrap(function()
                         elseif FarmMode == "Nearest" then
                             table.sort(AllCoins, function(a, b) return a.dist < b.dist end)
                             local count = math.min(NearestCount, #AllCoins)
-                            if count > 0 then
-                                SelectedCoinId = AllCoins[math.random(1, count)].id
-                            end
+                            if count > 0 then SelectedCoinId = AllCoins[math.random(1, count)].id end
                         elseif FarmMode == "Random" then
-                            if #AllCoins > 0 then
-                                SelectedCoinId = AllCoins[math.random(1, #AllCoins)].id
-                            end
+                            if #AllCoins > 0 then SelectedCoinId = AllCoins[math.random(1, #AllCoins)].id end
                         elseif FarmMode == "Gems" then
                             table.sort(AllCoins, function(a, b) return a.dist < b.dist end)
                             local count = math.min(NearestCount, #AllCoins)
-                            if count > 0 then
-                                SelectedCoinId = AllCoins[math.random(1, count)].id
-                            end
+                            if count > 0 then SelectedCoinId = AllCoins[math.random(1, count)].id end
                         end
-                        
                         if SelectedCoinId then
                             pcall(function()
                                 Network.Invoke(JoinCoinRemote, SelectedCoinId, EquippedPets)
@@ -572,5 +925,43 @@ coroutine.wrap(function()
         task.wait(0.05)
     end
 end)()
+
+task.spawn(function()
+    while not _G.StopHub do
+        task.wait(EnchantDelay)
+        if not AutoEnchant then continue end
+        local SelectedUIDs = GetSelectedUIDs()
+        if #SelectedUIDs == 0 then continue end
+        local Data = Save.Get()
+        if not Data or not Data.Pets then continue end
+        for _, petUid in ipairs(SelectedUIDs) do
+            local petObj
+            for _, p in ipairs(Data.Pets) do
+                if p.uid == petUid then petObj = p; break end
+            end
+            if petObj and not PetHasDesiredEnchant(petObj) then
+                pcall(function() Network.Invoke(EnchantRemote, petUid) end)
+                task.wait(EnchantDelay)
+                pcall(function() Save.Update(LocalPlayer) end)
+                break
+            end
+        end
+    end
+end)
+
+task.spawn(function()
+    while not _G.StopHub do
+        task.wait(0.5)
+        if AutoFuse then
+            FusePets()
+        end
+        if AutoGolden then
+            CraftMachineRows(GoldenTableData, false)
+        end
+        if AutoRainbow then
+            CraftMachineRows(RainbowTableData, true)
+        end
+    end
+end)
 
 print("Espa Hub Automatic Loaded!")
